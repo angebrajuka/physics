@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
         .position = {300, 100},
         .collider = rotated,
         .material = {
-            .bounciness = 1,
+            .bounciness = 0.8,
             .friction_static = 0,
             .friction_kinetic = 0
         }

@@ -93,8 +93,13 @@ double vector_dot(vector_t vec1, vector_t vec2) {
     return vec1.x * vec2.x + vec1.y * vec2.y;
 }
 
+double vector_cross_z(vector_t vec1, vector_t vec2) {
+    return (vec1.x*vec2.y) - (vec1.y*vec2.x);
+}
+
 vector_t vector_proj(vector_t onto, vector_t from) {
-    return vector_multiply(onto, vector_dot(onto, from) / sqr(vector_magnitude(onto)));
+    return vector_multiply(onto, vector_dot(onto, from)
+           / sqr(vector_magnitude(onto)));
 }
 
 // VERTICES ARE COUNTER CLOCKWISE
@@ -104,7 +109,8 @@ typedef struct collider_s {
 } collider_t;
 
 // ensure minimum 3 vertices
-// ensure varargs have a decimal point, (double) cast, or suffix to explicitly tell the compiler they are doubles
+// ensure varargs have a decimal point, (double) cast, or suffix
+// to explicitly tell the compiler they are doubles
 collider_t make_collider(int vertex_count, ...) {
     collider_t collider;
     collider.vertex_count = vertex_count;
@@ -112,7 +118,10 @@ collider_t make_collider(int vertex_count, ...) {
     va_start(args, vertex_count);
     int i;
     for(i=0; i < vertex_count; ++i) {
-        collider.vertices[i] = (vector_t){va_arg(args, double), va_arg(args, double)};
+        collider.vertices[i] = (vector_t){
+            .x = va_arg(args, double),
+            .y = va_arg(args, double)
+        };
     }
     va_end(args);
     return collider;
@@ -158,7 +167,8 @@ bool lines_collide(line_t l1, line_t l2, vector_t *collision_point) {
 }
 
 // only use collision_point if function returns true 
-bool collides(collider_t c1, vector_t position1, collider_t c2, vector_t position2, vector_t *collision_point, line_t *collision_line) {
+bool collides(collider_t c1, vector_t position1, collider_t c2, 
+                vector_t position2, vector_t *collision_point, line_t *collision_line) {
     int i, j;
     line_t line_i, line_j;
     for(i=0; i<c1.vertex_count; ++i) {
@@ -208,7 +218,7 @@ void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
     vector_t cg_dist = vector_sub(mobj->position, position);
     vector_t projection = vector_proj(force, cg_dist);
     double distance = vector_distance(cg_dist, projection);
-    char direction = 1;
+    char direction = vector_cross_z(cg_dist, projection) > 0 ? 1 : -1;
     mobj_apply_torque(mobj, direction*distance);
 }
 
@@ -271,11 +281,13 @@ void tick(simulation_t *simulation) {
         old_position = mobj->position;
         old_collider = mobj->collider;
         mobj->position = vector_add(mobj->position, vector_multiply(mobj->velocity, 1.0/SIMULATION_STEPS));
-        // mobj->collider = rotate(mobj->collider, mobj->angular_velocity/SIMULATION_STEPS);
+        mobj->collider = rotate(mobj->collider, mobj->angular_velocity/SIMULATION_STEPS);
         for(j=0; j<simulation->mobj_count; ++j) {
             if(i==j) continue;
             mobj_other = &simulation->mobjs[j];
-            if(collides(mobj->collider, mobj->position, mobj_other->collider, mobj_other->position, &collision_point, &collision_line)) {
+            if(collides(mobj->collider, mobj->position, mobj_other->collider,
+                        mobj_other->position, &collision_point, &collision_line))
+            {
                 collided = true;
                 mobj->position = old_position;
                 mobj->collider = old_collider;
@@ -287,7 +299,9 @@ void tick(simulation_t *simulation) {
         }
         for(j=0; j<simulation->sobj_count; ++j) {
             sobj_other = &simulation->sobjs[j];
-            if(collides(mobj->collider, mobj->position, sobj_other->collider, sobj_other->position, &collision_point, &collision_line)) {
+            if(collides(mobj->collider, mobj->position, sobj_other->collider,
+                        sobj_other->position, &collision_point, &collision_line))
+            {
                 collided = true;
                 normal_vector = vector_normalize((vector_t) {
                     .x = collision_line.start.y-collision_line.end.y, 
@@ -336,9 +350,17 @@ void render_obj(SDL_Renderer *renderer, vector_t position, collider_t c) {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     int i;
     for(i=0; i<c.vertex_count-1; ++i) {
-        SDL_RenderDrawLine(renderer, c.vertices[i].x+position.x, c.vertices[i].y+position.y, c.vertices[i+1].x+position.x, c.vertices[i+1].y+position.y);
+        SDL_RenderDrawLine(
+            renderer,
+            c.vertices[i].x+position.x, c.vertices[i].y+position.y,
+            c.vertices[i+1].x+position.x, c.vertices[i+1].y+position.y
+        );
     }
-    SDL_RenderDrawLine(renderer, c.vertices[c.vertex_count-1].x+position.x, c.vertices[c.vertex_count-1].y+position.y, c.vertices[0].x+position.x, c.vertices[0].y+position.y);
+    SDL_RenderDrawLine(
+        renderer,
+        c.vertices[c.vertex_count-1].x+position.x, c.vertices[c.vertex_count-1].y+position.y,
+        c.vertices[0].x+position.x, c.vertices[0].y+position.y
+    );
 #ifdef DEBUG_SHOW_CG
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
     render_rect(renderer, position.x-1, position.y-1, 4, 4);
