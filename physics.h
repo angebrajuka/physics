@@ -207,7 +207,7 @@ typedef struct mobj_s {
 } mobj_t;
 
 void mobj_apply_torque(mobj_t *mobj, double torque) {
-    mobj->angular_velocity += torque/mobj->mass/980;
+    mobj->angular_velocity += torque/mobj->mass/1000;
 }
 
 void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
