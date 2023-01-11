@@ -250,7 +250,7 @@ void tick(simulation_t *simulation) {
                 mobj->position = old_position;
                 mobj->collider = old_collider;
                 impact_speed = vector_magnitude(mobj->velocity);
-                mobj->velocity = zero_vector;
+                mobj->velocity = zero_vector; // TODO add normal force instead of zero to fix slide
                 mobj_apply_force(
                     mobj,
                     vector_multiply(
