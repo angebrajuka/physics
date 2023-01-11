@@ -8,21 +8,37 @@ int main(int argc, char **argv) {
     SDL_GetVersion(&version);
     printf("running SDL version %d.%d.%d\n", version.major, version.minor, version.patch);
 
-    simulation simulation = {
+    simulation_t simulation = {
         .tick_rate=60,
         .gravity={0, 0.098},
         .air_resistance=0
     };
 
-    simulation_add_m_obj(&simulation, (m_obj){
-        .pos={0, 0},
-        .vel={1, 0},
-        .collider=make_collider(3, (double[]){0, 0, 0, 100, 100, 100}),
+    simulation_add_mobj(&simulation, (mobj_t){
+        .position={0, 0},
+        .velocity={1, 0},
+        .angular_velocity=0.01,
+        .collider=make_collider(3,
+            0.0, 0.0,
+            0.0, 100.0,
+            100.0, 100.0
+        ),
         .material={0.7, 0, 0}
     });
-    simulation_add_s_obj(&simulation, (s_obj){
-        .pos={0, 470},
-        .collider=make_collider(4, (double[]){0, 0, 0, 10, 600, 10, 600, 0}),
+    collider_t original = make_collider(3,
+        0.0, 0.0,
+        0.0, 100.0,
+        100.0, 100.0
+    );
+    collider_t rotated = rotate(original, M_PI/4);
+    // simulation_add_sobj(&simulation, (sobj_t){
+    //     .position={10, 100},
+    //     .collider=original,//make_collider(4,  0.0, 0.0, 0.0, 10.0, 600.0, 10.0, 600.0, 0.0),
+    //     .material={1, 0, 0}
+    // });
+    simulation_add_sobj(&simulation, (sobj_t){
+        .position={300, 100},
+        .collider=rotated,
         .material={1, 0, 0}
     });
 

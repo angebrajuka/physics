@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <SDL2/SDL.h>
 #include <time.h>
+#include <math.h>
+#include <stdarg.h>
 
 #ifdef VERBOSE
 #include <stdio.h>
@@ -20,6 +22,10 @@
 #define MAX_COLLIDER_VERTICES 16
 #endif
 
+#ifndef VELOCITY_STEPS
+#define VELOCITY_STEPS 32
+#endif
+
 #ifdef USE_BLOCKMAP
 # ifndef BLOCKMAP_SIZE
 # define BLOCKMAP_SIZE 128
@@ -29,49 +35,69 @@
 # endif
 #endif
 
-typedef struct vector {
+typedef struct vector_s {
     double x, y;
-} vector;
+} vector_t;
 
-vector vector_add(vector vec1, vector vec2) {
-    vector result;
+vector_t vector_add(vector_t vec1, vector_t vec2) {
+    vector_t result;
     result.x = vec1.x+vec2.x;
     result.y = vec1.y+vec2.y;
     return result;
 }
 
-vector vector_multiply(vector vec, double scale) {
-    vector result;
+vector_t vector_multiply(vector_t vec, double scale) {
+    vector_t result;
     result.x = vec.x * scale;
     result.y = vec.y * scale;
     return result;
 }
 
 // VERTICES ARE COUNTER CLOCKWISE
-typedef struct collider {
-    vector vertices[MAX_COLLIDER_VERTICES];
+typedef struct collider_s {
+    vector_t vertices[MAX_COLLIDER_VERTICES];
     int vertex_count;
-} collider;
+} collider_t;
 
 // ensure minimum 3 vertices
-collider make_collider(int vertex_count, double *vertex_positions) {
-    collider c;
-    c.vertex_count = vertex_count;
+// ensure varargs have a decimal point, (double) cast, or suffix to explicitly tell the compiler they are doubles
+collider_t make_collider(int vertex_count, ...) {
+    collider_t collider;
+    collider.vertex_count = vertex_count;
+    va_list args;
+    va_start(args, vertex_count);
     int i;
-    vector pos;
     for(i=0; i < vertex_count; ++i) {
-        pos.x = vertex_positions[2*i];
-        pos.y = vertex_positions[2*i+1];
-        c.vertices[i] = pos;
+        collider.vertices[i] = (vector_t){va_arg(args, double), va_arg(args, double)};
     }
-    return c;
+    va_end(args);
+    return collider;
 }
 
-typedef struct line {
-    vector start, end;
-} line;
+collider_t rotate(collider_t original, double angle) {
+    collider_t result = {.vertex_count=original.vertex_count};
+    int i;
+    if(angle ==0) {
+        for(i=0; i<original.vertex_count; ++i) {
+            result.vertices[i] = original.vertices[i];
+        }
+        return result;
+    }
 
-bool lines_collide(line l1, line l2, vector *collision_point) {
+    angle = 2*M_PI-angle;
+    for(i=0; i<original.vertex_count; ++i) {
+        result.vertices[i].x = original.vertices[i].x * cos(angle) - original.vertices[i].y * sin(angle);
+        result.vertices[i].y = original.vertices[i].x * sin(angle) + original.vertices[i].y * cos(angle);
+    }
+
+    return result;
+}
+
+typedef struct line_s {
+    vector_t start, end;
+} line_t;
+
+bool lines_collide(line_t l1, line_t l2, vector_t *collision_point) {
     double uA = ((l2.end.x-l2.start.x)*(l1.start.y-l2.start.y) - (l2.end.y-l2.start.y)*(l1.start.x-l2.start.x))
               / ((l2.end.y-l2.start.y)*(l1.end.x-l1.start.x) - (l2.end.x-l2.start.x)*(l1.end.y-l1.start.y));
     double uB = ((l1.end.x-l1.start.x)*(l1.start.y-l2.start.y) - (l1.end.y-l1.start.y)*(l1.start.x-l2.start.x))
@@ -86,15 +112,15 @@ bool lines_collide(line l1, line l2, vector *collision_point) {
 }
 
 // only use collision_point if function returns true 
-bool collides(collider c1, vector pos1, collider c2, vector pos2, vector *collision_point) {
+bool collides(collider_t c1, vector_t position1, collider_t c2, vector_t position2, vector_t *collision_point) {
     int i, j;
-    line line_i, line_j;
+    line_t line_i, line_j;
     for(i=0; i<c1.vertex_count; ++i) {
-        line_i.start = vector_add(pos1, c1.vertices[i]);
-        line_i.end = vector_add(pos1, c1.vertices[i == c1.vertex_count-1 ? 0 : i+1]);
+        line_i.start = vector_add(position1, c1.vertices[i]);
+        line_i.end = vector_add(position1, c1.vertices[i == c1.vertex_count-1 ? 0 : i+1]);
         for(j=0; j<c2.vertex_count; ++j) {
-            line_j.start = vector_add(pos2, c2.vertices[j]);
-            line_j.end = vector_add(pos2, c2.vertices[j == c2.vertex_count-1 ? 0 : j+1]);
+            line_j.start = vector_add(position2, c2.vertices[j]);
+            line_j.end = vector_add(position2, c2.vertices[j == c2.vertex_count-1 ? 0 : j+1]);
             if(lines_collide(line_i, line_j, collision_point)) {
                 return true;
             }
@@ -103,82 +129,83 @@ bool collides(collider c1, vector pos1, collider c2, vector pos2, vector *collis
     return false;
 }
 
-typedef struct material {
+typedef struct material_s {
     double bounciness;
-    double friction_static;
+    double friction_tatic;
     double friction_kinetic;
-} material;
+} material_t;
 
-typedef struct s_obj {
-    vector pos;
-    collider collider;
-    material material;
-} s_obj;
+typedef struct sobj_s {
+    vector_t position;
+    collider_t collider;
+    material_t material;
+} sobj_t;
 
-typedef struct m_obj {
-    vector pos, vel;
-    collider collider;
-    material material;
-} m_obj;
+typedef struct mobj_s {
+    vector_t position, velocity;
+    double angular_velocity;
+    collider_t collider;
+    material_t material;
+} mobj_t;
 
-typedef struct simulation {
+typedef struct simulation_s {
     int tick_rate;
-    s_obj s_objs[MAX_SOBJ_COUNT];
-    int s_obj_count;
-    m_obj m_objs[MAX_MOBJ_COUNT];
-    int m_obj_count;
-    vector gravity;
+    sobj_t sobjs[MAX_SOBJ_COUNT];
+    int sobj_count;
+    mobj_t mobjs[MAX_MOBJ_COUNT];
+    int mobj_count;
+    vector_t gravity;
     double air_resistance;
-} simulation;
+} simulation_t;
 
-simulation default_simulation = {
+simulation_t default_simulation = {
     .tick_rate=60,
-    .s_obj_count=0,
-    .m_obj_count=0,
+    .sobj_count=0,
+    .mobj_count=0,
     .gravity={0, 0.098},
     .air_resistance=0
 };
 
-void simulation_add_m_obj(simulation *sim, m_obj obj) {
+void simulation_add_mobj(simulation_t *simulation, mobj_t mobj) {
 #ifdef CATCH_OBJECT_OVERFLOW
-    if(sim->m_obj_count == MAX_MOBJ_COUNT) {
+    if(simulation->mobj_count == MAX_MOBJ_COUNT) {
         return;
     }
 #endif
-    sim->m_objs[sim->m_obj_count++] = obj;
+    simulation->mobjs[simulation->mobj_count++] = mobj;
 }
 
-void simulation_add_s_obj(simulation *sim, s_obj obj) {
+void simulation_add_sobj(simulation_t *simulation, sobj_t sobj) {
 #ifdef CATCH_OBJECT_OVERFLOW
-    if(sim->s_obj_count == MAX_SOBJ_COUNT) {
+    if(simulation->sobj_count == MAX_SOBJ_COUNT) {
         return;
     }
 #endif
-    sim->s_objs[sim->s_obj_count++] = obj;
+    simulation->sobjs[simulation->sobj_count++] = sobj;
 }
 
-void tick(simulation *sim) {
+void tick(simulation_t *simulation) {
     int i, j, step;
-    double steps = 100;
-    m_obj *m_obj_i, *m_obj_j;
-    s_obj *s_obj_j;
-    vector collision_point;
-    for(i=0; i<sim->m_obj_count; ++i) {
-        m_obj_i = &sim->m_objs[i];
-        m_obj_i->vel = vector_add(m_obj_i->vel, sim->gravity);
-        for(step=0; step < steps; ++step) {
-            m_obj_i->pos = vector_add(m_obj_i->pos, vector_multiply(m_obj_i->vel, 1.0/steps));
-            for(j=0; j<sim->m_obj_count; ++j) {
+    mobj_t *mobj, *mobj_other;
+    sobj_t *sobj_other;
+    vector_t collision_point;
+    for(i=0; i<simulation->mobj_count; ++i) {
+        mobj = &simulation->mobjs[i];
+        mobj->velocity = vector_add(mobj->velocity, simulation->gravity);
+        for(step=0; step < VELOCITY_STEPS; ++step) {
+            mobj->position = vector_add(mobj->position, vector_multiply(mobj->velocity, 1.0/VELOCITY_STEPS));
+            mobj->collider = rotate(mobj->collider, mobj->angular_velocity/VELOCITY_STEPS);
+            for(j=0; j<simulation->mobj_count; ++j) {
                 if(i==j) continue;
-                m_obj_j = &sim->m_objs[j];
-                if(collides(m_obj_i->collider, m_obj_i->pos, m_obj_j->collider, m_obj_j->pos, &collision_point)) {
+                mobj_other = &simulation->mobjs[j];
+                if(collides(mobj->collider, mobj->position, mobj_other->collider, mobj_other->position, &collision_point)) {
                     goto collided;
                 }
             }
-            for(j=0; j<sim->s_obj_count; ++j) {
-                s_obj_j = &sim->s_objs[j];
-                if(collides(m_obj_i->collider, m_obj_i->pos, s_obj_j->collider, s_obj_j->pos, &collision_point)) {
-                    m_obj_i->vel.y *= -(m_obj_i->material.bounciness * s_obj_j->material.bounciness);
+            for(j=0; j<simulation->sobj_count; ++j) {
+                sobj_other = &simulation->sobjs[j];
+                if(collides(mobj->collider, mobj->position, sobj_other->collider, sobj_other->position, &collision_point)) {
+                    mobj->velocity.y *= -(mobj->material.bounciness * sobj_other->material.bounciness);
                     goto collided;
                 }
             }
@@ -189,32 +216,32 @@ void tick(simulation *sim) {
     }
 }
 
-void render_obj(SDL_Renderer *renderer, vector pos, collider c) {
+void render_obj(SDL_Renderer *renderer, vector_t position, collider_t c) {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     int i;
     for(i=0; i<c.vertex_count-1; ++i) {
-        SDL_RenderDrawLine(renderer, c.vertices[i].x+pos.x, c.vertices[i].y+pos.y, c.vertices[i+1].x+pos.x, c.vertices[i+1].y+pos.y);
+        SDL_RenderDrawLine(renderer, c.vertices[i].x+position.x, c.vertices[i].y+position.y, c.vertices[i+1].x+position.x, c.vertices[i+1].y+position.y);
     }
-    SDL_RenderDrawLine(renderer, c.vertices[c.vertex_count-1].x+pos.x, c.vertices[c.vertex_count-1].y+pos.y, c.vertices[0].x+pos.x, c.vertices[0].y+pos.y);
+    SDL_RenderDrawLine(renderer, c.vertices[c.vertex_count-1].x+position.x, c.vertices[c.vertex_count-1].y+position.y, c.vertices[0].x+position.x, c.vertices[0].y+position.y);
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-    SDL_Rect rect = {(int)pos.x-1, (int)pos.y-1, 4, 4};
+    SDL_Rect rect = {(int)position.x-1, (int)position.y-1, 4, 4};
     SDL_RenderFillRect(renderer, &rect);
 }
 
-void render(simulation *sim, SDL_Renderer *renderer) {
+void render(simulation_t *simulation, SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
     SDL_RenderClear(renderer);
 
     int i;
-    for(i=0; i<sim->m_obj_count; ++i) {
-        render_obj(renderer, sim->m_objs[i].pos, sim->m_objs[i].collider);
+    for(i=0; i<simulation->mobj_count; ++i) {
+        render_obj(renderer, simulation->mobjs[i].position, simulation->mobjs[i].collider);
     }
-    for(i=0; i<sim->s_obj_count; ++i) {
-        render_obj(renderer, sim->s_objs[i].pos, sim->s_objs[i].collider);
+    for(i=0; i<simulation->sobj_count; ++i) {
+        render_obj(renderer, simulation->sobjs[i].position, simulation->sobjs[i].collider);
     }
 }
 
-int begin_loop(simulation *sim, int windowWidth, int windowHeight, Uint32 flags) {
+int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint32 flags) {
     if(SDL_Init(SDL_INIT_VIDEO) < 0) {
 #ifdef VERBOSE
         printf("SDL2 failed to initialize video\n");
@@ -272,13 +299,13 @@ int begin_loop(simulation *sim, int windowWidth, int windowHeight, Uint32 flags)
             }
         }
 
-        tick(sim);
-        render(sim, renderer);
+        tick(simulation);
+        render(simulation, renderer);
 
         SDL_RenderPresent(renderer);
 
         stop = clock();
-        int delay_time = 1000/sim->tick_rate - (stop-start);
+        int delay_time = 1000/simulation->tick_rate - (stop-start);
         if(delay_time > 0) {
             SDL_Delay(delay_time);
         }
