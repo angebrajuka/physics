@@ -6,6 +6,13 @@
 #include <math.h>
 #include <stdarg.h>
 
+#ifdef DEBUG
+#define VERBOSE
+#define DEBUG_SHOW_LAST_COLLISION
+#define DEBUG_SHOW_CG
+#endif
+
+
 #ifdef VERBOSE
 #include <stdio.h>
 #endif
@@ -22,11 +29,11 @@
 #define MAX_COLLIDER_VERTICES 16
 #endif
 
-#ifndef VELOCITY_STEPS
-#define VELOCITY_STEPS 32
+#ifndef SIMULATION_STEPS
+#define SIMULATION_STEPS 32
 #endif
 
-#ifdef USE_BLOCKMAP
+#if defined(USE_BLOCKMAP) || defined(BLOCKMAP_SIZE) || defined(BLOCKMAP_COUNT)
 # ifndef BLOCKMAP_SIZE
 # define BLOCKMAP_SIZE 128
 # endif
@@ -35,9 +42,13 @@
 # endif
 #endif
 
+#define sqr(x) x*x
+
 typedef struct vector_s {
     double x, y;
 } vector_t;
+
+const vector_t zero_vector = {.x=0, .y=0};
 
 vector_t vector_add(vector_t vec1, vector_t vec2) {
     vector_t result;
@@ -51,6 +62,14 @@ vector_t vector_multiply(vector_t vec, double scale) {
     result.x = vec.x * scale;
     result.y = vec.y * scale;
     return result;
+}
+
+double vector_magnitude(vector_t vec) {
+    return sqrt(sqr(vec.x) + sqr(vec.y));
+}
+
+vector_t vector_normalize(vector_t vec) {
+    return vector_multiply(vec, 1.0/vector_magnitude(vec));
 }
 
 // VERTICES ARE COUNTER CLOCKWISE
@@ -112,7 +131,7 @@ bool lines_collide(line_t l1, line_t l2, vector_t *collision_point) {
 }
 
 // only use collision_point if function returns true 
-bool collides(collider_t c1, vector_t position1, collider_t c2, vector_t position2, vector_t *collision_point) {
+bool collides(collider_t c1, vector_t position1, collider_t c2, vector_t position2, vector_t *collision_point, line_t *collision_line) {
     int i, j;
     line_t line_i, line_j;
     for(i=0; i<c1.vertex_count; ++i) {
@@ -122,6 +141,7 @@ bool collides(collider_t c1, vector_t position1, collider_t c2, vector_t positio
             line_j.start = vector_add(position2, c2.vertices[j]);
             line_j.end = vector_add(position2, c2.vertices[j == c2.vertex_count-1 ? 0 : j+1]);
             if(lines_collide(line_i, line_j, collision_point)) {
+                *collision_line = line_j;
                 return true;
             }
         }
@@ -146,7 +166,12 @@ typedef struct mobj_s {
     double angular_velocity;
     collider_t collider;
     material_t material;
+    double mass;
 } mobj_t;
+
+void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
+    mobj->velocity = vector_add(mobj->velocity, vector_multiply(force, 1.0/mobj->mass));
+}
 
 typedef struct simulation_s {
     int tick_rate;
@@ -158,7 +183,7 @@ typedef struct simulation_s {
     double air_resistance;
 } simulation_t;
 
-simulation_t default_simulation = {
+const simulation_t default_simulation = {
     .tick_rate=60,
     .sobj_count=0,
     .mobj_count=0,
@@ -184,34 +209,62 @@ void simulation_add_sobj(simulation_t *simulation, sobj_t sobj) {
     simulation->sobjs[simulation->sobj_count++] = sobj;
 }
 
+#ifdef DEBUG_SHOW_LAST_COLLISION
+line_t collision_line;
+#endif
+
 void tick(simulation_t *simulation) {
     int i, j, step;
     mobj_t *mobj, *mobj_other;
     sobj_t *sobj_other;
-    vector_t collision_point;
-    for(i=0; i<simulation->mobj_count; ++i) {
+    vector_t old_position, collision_point;
+    #ifndef DEBUG_SHOW_LAST_COLLISION
+    line_t collision_line;
+    #endif
+    double impact_speed;
+    collider_t old_collider;
+    bool collided;
+    for(step=0; step < SIMULATION_STEPS; ++step) for(i=0; i<simulation->mobj_count; ++i) {
         mobj = &simulation->mobjs[i];
-        mobj->velocity = vector_add(mobj->velocity, simulation->gravity);
-        for(step=0; step < VELOCITY_STEPS; ++step) {
-            mobj->position = vector_add(mobj->position, vector_multiply(mobj->velocity, 1.0/VELOCITY_STEPS));
-            mobj->collider = rotate(mobj->collider, mobj->angular_velocity/VELOCITY_STEPS);
-            for(j=0; j<simulation->mobj_count; ++j) {
-                if(i==j) continue;
-                mobj_other = &simulation->mobjs[j];
-                if(collides(mobj->collider, mobj->position, mobj_other->collider, mobj_other->position, &collision_point)) {
-                    goto collided;
-                }
+        mobj->velocity = vector_add(mobj->velocity, vector_multiply(simulation->gravity, 1.0/SIMULATION_STEPS));
+        collided = false;
+        old_position = mobj->position;
+        old_collider = mobj->collider;
+        mobj->position = vector_add(mobj->position, vector_multiply(mobj->velocity, 1.0/SIMULATION_STEPS));
+        mobj->collider = rotate(mobj->collider, mobj->angular_velocity/SIMULATION_STEPS);
+        for(j=0; j<simulation->mobj_count; ++j) {
+            if(i==j) continue;
+            mobj_other = &simulation->mobjs[j];
+            if(collides(mobj->collider, mobj->position, mobj_other->collider, mobj_other->position, &collision_point, &collision_line)) {
+                collided = true;
+                mobj->position = old_position;
+                mobj->collider = old_collider;
+                // TODO two mobjs colliding
+                break;
             }
-            for(j=0; j<simulation->sobj_count; ++j) {
-                sobj_other = &simulation->sobjs[j];
-                if(collides(mobj->collider, mobj->position, sobj_other->collider, sobj_other->position, &collision_point)) {
-                    mobj->velocity.y *= -(mobj->material.bounciness * sobj_other->material.bounciness);
-                    goto collided;
-                }
+        }
+        for(j=0; j<simulation->sobj_count; ++j) {
+            sobj_other = &simulation->sobjs[j];
+            if(collides(mobj->collider, mobj->position, sobj_other->collider, sobj_other->position, &collision_point, &collision_line)) {
+                collided = true;
+                mobj->position = old_position;
+                mobj->collider = old_collider;
+                impact_speed = vector_magnitude(mobj->velocity);
+                mobj->velocity = zero_vector;
+                mobj_apply_force(
+                    mobj,
+                    vector_multiply(
+                        vector_normalize((vector_t) {
+                            .x=collision_line.start.y-collision_line.end.y, 
+                            .y=collision_line.end.x-collision_line.start.x
+                        }),
+                        impact_speed * mobj->mass * mobj->material.bounciness * sobj_other->material.bounciness
+                    ),
+                    collision_point
+                );
+
+                break;
             }
-            continue;
-            collided:
-            break;
         }
     }
 }
@@ -223,9 +276,11 @@ void render_obj(SDL_Renderer *renderer, vector_t position, collider_t c) {
         SDL_RenderDrawLine(renderer, c.vertices[i].x+position.x, c.vertices[i].y+position.y, c.vertices[i+1].x+position.x, c.vertices[i+1].y+position.y);
     }
     SDL_RenderDrawLine(renderer, c.vertices[c.vertex_count-1].x+position.x, c.vertices[c.vertex_count-1].y+position.y, c.vertices[0].x+position.x, c.vertices[0].y+position.y);
+#ifdef DEBUG_SHOW_CG
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
     SDL_Rect rect = {(int)position.x-1, (int)position.y-1, 4, 4};
     SDL_RenderFillRect(renderer, &rect);
+#endif
 }
 
 void render(simulation_t *simulation, SDL_Renderer *renderer) {
@@ -239,6 +294,13 @@ void render(simulation_t *simulation, SDL_Renderer *renderer) {
     for(i=0; i<simulation->sobj_count; ++i) {
         render_obj(renderer, simulation->sobjs[i].position, simulation->sobjs[i].collider);
     }
+
+#ifdef DEBUG_SHOW_LAST_COLLISION
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+    SDL_RenderDrawLine(renderer, collision_line.start.x, collision_line.start.y, collision_line.end.x, collision_line.end.y);
+    SDL_Rect rect = {(int)collision_line.start.x-1, (int)collision_line.start.y-1, 4, 4};
+    SDL_RenderFillRect(renderer, &rect);
+#endif
 }
 
 int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint32 flags) {
