@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
     printf("running SDL version %d.%d.%d\n", version.major, version.minor, version.patch);
 
     simulation_t simulation = {
-        .tick_rate = 60,
+        .tick_rate = 30,
         .gravity = {0, 0.098},
         .air_resistance = 0
     };
