@@ -1,6 +1,7 @@
 #define DEBUG
 #define CATCH_OBJECT_OVERFLOW
 #define DEBUG_SHOW_LAST_COLLISION
+#define SIMULATION_STEPS 32
 #include "physics.h"
 #include <stdio.h>
 
@@ -10,7 +11,7 @@ int main(int argc, char **argv) {
     printf("running SDL version %d.%d.%d\n", version.major, version.minor, version.patch);
 
     simulation_t simulation = {
-        .tick_rate = 30,
+        .tick_rate = 45,
         .gravity = {0, 0.098},
         .air_resistance = 0
     };

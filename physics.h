@@ -207,7 +207,7 @@ typedef struct mobj_s {
 } mobj_t;
 
 void mobj_apply_torque(mobj_t *mobj, double torque) {
-    mobj->angular_velocity += torque/mobj->mass/980;
+    mobj->angular_velocity += torque/mobj->mass;
 }
 
 void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
@@ -219,7 +219,7 @@ void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
     vector_t projection = vector_proj(force, cg_dist);
     double distance = vector_distance(cg_dist, projection);
     char direction = vector_cross_z(cg_dist, projection) > 0 ? 1 : -1;
-    mobj_apply_torque(mobj, direction*distance);
+    mobj_apply_torque(mobj, direction*distance/M_PI/180/6);
 }
 
 typedef struct simulation_s {
@@ -310,7 +310,7 @@ void tick(simulation_t *simulation) {
                 // mobj->position = old_position;
                 // mobj->collider = old_collider;
                 impact_speed = vector_magnitude(mobj->velocity);
-                normal_force = vector_multiply(
+                normal_force = vector_multiply( // TODO ADD ANGULAR VELOCITY TO THIS
                     normal_vector,
                     mobj->mass * vector_magnitude(vector_proj(normal_vector, mobj->velocity))
                 );
