@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
             40.0, -40.0
         ),
         .material = {
-            .bounciness = 1,
+            .bounciness = 0,
             .friction_static = 0,
             .friction_kinetic = 0
         },
