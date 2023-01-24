@@ -6,6 +6,13 @@
 #include <math.h>
 #include <stdarg.h>
 
+#ifdef DEBUG
+#define VERBOSE
+#define DEBUG_SHOW_LAST_COLLISION
+#define DEBUG_SHOW_CG
+#endif
+
+
 #ifdef VERBOSE
 #include <stdio.h>
 #endif
@@ -93,13 +100,6 @@ double vector_cross_z(vector_t vec1, vector_t vec2) {
 vector_t vector_proj(vector_t onto, vector_t from) {
     return vector_multiply(onto, vector_dot(onto, from)
            / sqr(vector_magnitude(onto)));
-}
-
-vector_t vector_90(vector_t vec) {
-    return (vector_t) {
-        .x = -vec.y,
-        .y = vec.x
-    };
 }
 
 // VERTICES ARE COUNTER CLOCKWISE
@@ -210,18 +210,16 @@ void mobj_apply_torque(mobj_t *mobj, double torque) {
     mobj->angular_velocity += torque/mobj->mass;
 }
 
-#define MAGIC_TORQUE_NUM (M_PI*180*10)
-
 void mobj_apply_force(mobj_t *mobj, vector_t force, vector_t position) {
     if(force.x == 0 && force.y == 0) {
         return;
     }
+    mobj->velocity = vector_add(mobj->velocity, vector_multiply(force, 1.0/mobj->mass));
     vector_t cg_dist = vector_sub(mobj->position, position);
     vector_t projection = vector_proj(force, cg_dist);
     double distance = vector_distance(cg_dist, projection);
     char direction = vector_cross_z(cg_dist, projection) > 0 ? 1 : -1;
-    mobj->velocity = vector_add(mobj->velocity, vector_multiply(force, 1.0/mobj->mass*1.0/distance));
-    mobj_apply_torque(mobj, direction*distance/vector_magnitude(cg_dist));
+    mobj_apply_torque(mobj, direction*distance/M_PI/180/6);
 }
 
 typedef struct simulation_s {
@@ -274,7 +272,6 @@ void tick(simulation_t *simulation) {
     line_t collision_line;
     #endif
     double impact_speed;
-    vector_t impact_torque, torque_dist;
     collider_t old_collider;
     bool collided;
     for(step=0; step < SIMULATION_STEPS; ++step) for(i=0; i<simulation->mobj_count; ++i) {
@@ -306,24 +303,17 @@ void tick(simulation_t *simulation) {
                         sobj_other->position, &collision_point, &collision_line))
             {
                 collided = true;
-                normal_vector = vector_normalize(vector_90((vector_t) {
-                    .x = collision_line.end.x-collision_line.start.x,
-                    .y = collision_line.end.y-collision_line.start.y
-                }));
+                normal_vector = vector_normalize((vector_t) {
+                    .x = collision_line.start.y-collision_line.end.y, 
+                    .y = collision_line.end.x-collision_line.start.x
+                });
                 // mobj->position = old_position;
                 // mobj->collider = old_collider;
                 impact_speed = vector_magnitude(mobj->velocity);
-                torque_dist = vector_sub(mobj->position, collision_point);
-                impact_torque = vector_multiply(
-                    vector_normalize(vector_90(torque_dist)),
-                    mobj->angular_velocity * vector_magnitude(torque_dist)
-                );
-
                 normal_force = vector_multiply( // TODO ADD ANGULAR VELOCITY TO THIS
-                    vector_proj(normal_vector, vector_add(mobj->velocity, impact_torque)),
-                    -mobj->mass
+                    normal_vector,
+                    mobj->mass * vector_magnitude(vector_proj(normal_vector, mobj->velocity))
                 );
-                
 #ifdef DEBUG_SHOW_LAST_COLLISION
                 debug_normal_force = (line_t){collision_point, vector_add(collision_point, normal_force)};
 #endif
@@ -344,12 +334,6 @@ void tick(simulation_t *simulation) {
                 break;
             }
         }
-    }
-}
-
-void tick_n(simulation_t *sim, int ticks) {
-    for(; ticks > 0; --ticks) {
-        tick(sim);
     }
 }
 
@@ -410,7 +394,7 @@ int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint
         printf("SDL2 failed to initialize video\n");
         printf("%s\n", SDL_GetError());
 #endif
-        return EXIT_FAILURE;
+        return -1;
     }
 
     SDL_Window *window = SDL_CreateWindow(
@@ -425,7 +409,7 @@ int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint
         printf("SDL2 failed to create window\n");
         printf("%s\n", SDL_GetError());
 #endif
-        return EXIT_FAILURE;
+        return -1;
     }
 
     SDL_Surface *window_surface = SDL_GetWindowSurface(window);
@@ -436,7 +420,7 @@ int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint
         printf("SDL2 failed to get the surface from the window\n");
         printf("%s\n", SDL_GetError());
 #endif
-        return EXIT_FAILURE;
+        return -1;
     }
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, 0, 0);
@@ -445,16 +429,8 @@ int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint
         printf("SDL2 failed to create a renderer\n");
         printf("%s\n", SDL_GetError());
 #endif
-        return EXIT_FAILURE;
+        return -1;
     }
-
-#ifdef VERBOSE
-    {
-        SDL_version version;
-        SDL_GetVersion(&version);
-        printf("running SDL version %d.%d.%d\n", version.major, version.minor, version.patch);
-    }
-#endif
 
     bool running = true;
     clock_t start, stop;
@@ -486,5 +462,5 @@ int begin_loop(simulation_t *simulation, int windowWidth, int windowHeight, Uint
     SDL_DestroyWindow(window);
     SDL_Quit();
 
-    return EXIT_SUCCESS;
+    return 0;
 }
