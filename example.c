@@ -1,4 +1,6 @@
-#define DEBUG
+#define VERBOSE
+#define DEBUG_SHOW_LAST_COLLISION
+#define DEBUG_SHOW_CG
 #define CATCH_OBJECT_OVERFLOW
 #define DEBUG_SHOW_LAST_COLLISION
 #define SIMULATION_STEPS 32
@@ -6,10 +8,6 @@
 #include <stdio.h>
 
 int main(int argc, char **argv) {
-    SDL_version version;
-    SDL_GetVersion(&version);
-    printf("running SDL version %d.%d.%d\n", version.major, version.minor, version.patch);
-
     simulation_t simulation = {
         .tick_rate = 45,
         .gravity = {0, 0.098},
@@ -27,7 +25,7 @@ int main(int argc, char **argv) {
             40.0, -40.0
         ),
         .material = {
-            .bounciness = 1,
+            .bounciness = 0,
             .friction_static = 0,
             .friction_kinetic = 0
         },
@@ -58,6 +56,5 @@ int main(int argc, char **argv) {
         }
     });
 
-    begin_loop(&simulation, 640, 480, 0);
-    return 0;
+    return begin_loop(&simulation, 640, 480, 0);
 }
